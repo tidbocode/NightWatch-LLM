@@ -1,4 +1,4 @@
-![Image](https://github.com/tidbocode/NightWatch-LLM/blob/main/NightWatchLLM.jpg)
+![Image](https://github.com/tidbocode/NightWatch-LLM/blob/main/NightWatch-LLM.jpg)
 
 # NightWatch-LLM
 
