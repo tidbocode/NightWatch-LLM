@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m pytest tests/test_parsers.py -v)"
+      "Bash(python -m pytest tests/test_parsers.py -v)",
+      "Bash(python -m pytest tests/test_analyzer.py -v)",
+      "Bash(python -m pytest tests/test_analyzer.py tests/test_parsers.py -v)"
     ]
   }
 }
