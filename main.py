@@ -7,20 +7,20 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 
-from chatbot import Mockingbird
+from chatbot import NightWatch
 from config import CHAT_MODEL, EMBED_MODEL
 
 console = Console()
 
 BANNER = r"""
- __    __           _    _             _     _         _
- | \  / | ___   ___| | _(_)_ __   __ _| |__ (_)_ __ __| |
- | |\/| |/ _ \ / __| |/ / | '_ \ / _` | '_ \| | '__/ _` |
- | |  | | (_) | (__|   <| | | | | (_| | |_) | | | | (_| |
- |_|  |_|\___/ \___|_|\_\_|_| |_|\__, |_.__/|_|_|  \__,_|
-                                  |___/ 
+ _   _  _       _     _    __        __    _       _     _
+| \ | |(_) __ _| |__ | |_  \ \      / /_ _| |_ ___| |__ | |
+|  \| || |/ _` | '_ \| __|  \ \ /\ / / _` | __/ __| '_ \| |
+| |\  || | (_| | | | | |_    \ V  V / (_| | || (__| | | |_|
+|_| \_||_|\__, |_| |_|\__|    \_/\_/ \__,_|\__\___|_| |_(_)
+          |___/
 
-                https://github.com/tidbocode/mockingbird
+              https://github.com/tidbocode/NightWatch-LLM
 """
 
 HELP_TEXT = """
@@ -52,7 +52,7 @@ def check_ollama() -> bool:
     return True
 
 
-def show_stats(bot: Mockingbird) -> None:
+def show_stats(bot: NightWatch) -> None:
     s = bot.stats()
     pct = s["pct_used"]
     bar_filled = pct // 5
@@ -75,7 +75,7 @@ def show_stats(bot: Mockingbird) -> None:
     console.print(table)
 
 
-def show_memories(bot: Mockingbird) -> None:
+def show_memories(bot: NightWatch) -> None:
     memories = bot.list_memories()
     if not memories:
         console.print("[dim]No memories stored yet.[/dim]")
@@ -91,9 +91,9 @@ def main() -> None:
     if not check_ollama():
         sys.exit(1)
 
-    console.print("[dim]Loading Mockingbird...[/dim]")
+    console.print("[dim]Loading NightWatch...[/dim]")
     try:
-        bot = Mockingbird()
+        bot = NightWatch()
     except Exception as exc:
         console.print(f"[red]Init failed:[/red] {exc}")
         sys.exit(1)
@@ -125,7 +125,7 @@ def main() -> None:
         elif cmd == "/help":
             console.print(HELP_TEXT)
         else:
-            console.print("[bold magenta]Mockingbird[/bold magenta]: ", end="")
+            console.print("[bold magenta]NightWatch[/bold magenta]: ", end="")
             try:
                 for token in bot.chat(text):
                     console.print(token, end="")

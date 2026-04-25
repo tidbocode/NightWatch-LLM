@@ -1,5 +1,5 @@
 """
-Tests for Mockingbird — the top-level orchestrator.
+Tests for NightWatch — the top-level orchestrator.
 
 All Ollama and ChromaDB calls are mocked so these tests run offline.
 """
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from chatbot import Mockingbird
+from chatbot import NightWatch
 from utils.token_budget import TokenBudget
 
 
@@ -24,7 +24,7 @@ def _stream_chunk(text: str) -> MagicMock:
 @pytest.fixture
 def bot():
     """
-    A Mockingbird instance with Summarizer, VectorMemory, and ollama patched out.
+    A NightWatch instance with Summarizer, VectorMemory, and ollama patched out.
     Yields (bot, mock_vector_memory, mock_summarizer, mock_ollama).
     """
     with (
@@ -41,7 +41,7 @@ def bot():
 
         mock_ollama.chat.return_value = iter([_stream_chunk("Hello"), _stream_chunk(" world")])
 
-        yield Mockingbird(), mock_vm, mock_sum, mock_ollama
+        yield NightWatch(), mock_vm, mock_sum, mock_ollama
 
 
 # ------------------------------------------------------------------

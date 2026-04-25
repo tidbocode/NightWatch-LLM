@@ -17,13 +17,13 @@ from memory.vector_store import VectorMemory
 from utils.token_budget import TokenBudget
 
 _SYSTEM_PROMPT = (
-    "You are Mockingbird, a helpful and thoughtful AI assistant with persistent memory. "
+    "You are NightWatch, a helpful and thoughtful AI assistant with persistent memory. "
     "You remember important details from past conversations and use them to give "
     "personalized, context-aware responses. Be concise and genuinely helpful."
 )
 
 
-class Mockingbird:
+class NightWatch:
     """
     Orchestrates four memory mechanisms:
 

@@ -18,13 +18,13 @@ pip install -r requirements.txt
 python main.py
 ```
 
-`main.py` calls `check_ollama()` on startup, which verifies Ollama is reachable and both models are present before instantiating `Mockingbird`.
+`main.py` calls `check_ollama()` on startup, which verifies Ollama is reachable and both models are present before instantiating `NightWatch`.
 
 ## Architecture
 
-`Mockingbird` in `chatbot.py` is the single orchestrator. It wires together four subsystems, all configured via `config.py`:
+`NightWatch` in `chatbot.py` is the single orchestrator. It wires together four subsystems, all configured via `config.py`:
 
-### Per-turn flow in `Mockingbird.chat()`
+### Per-turn flow in `NightWatch.chat()`
 
 `chat()` is a **generator** — it yields tokens as they stream from Ollama, then runs post-processing (state update + memory extraction) after the last token is yielded. The caller must fully consume the generator for memory extraction to run.
 
