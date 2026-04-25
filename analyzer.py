@@ -186,11 +186,23 @@ class ThreatAnalyzer:
         entries: list[LogEntry],
         source_file: str,
     ) -> tuple[list[Alert], str]:
+        # Strip markdown fences and whitespace
         cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
 
+        # Scan for the first { in case the LLM prefixed prose before the JSON
+        brace = cleaned.find("{")
+        if brace > 0:
+            cleaned = cleaned[brace:]
+
+        data = None
         try:
-            data = json.loads(cleaned)
+            # raw_decode stops at the end of the first valid JSON object,
+            # so trailing prose or newlines after the closing } are ignored
+            data, _ = json.JSONDecoder().raw_decode(cleaned)
         except json.JSONDecodeError:
+            pass
+
+        if data is None:
             return [self._error_alert(
                 f"LLM response was not valid JSON: {raw[:300]}",
                 entries,

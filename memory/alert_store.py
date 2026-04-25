@@ -139,6 +139,17 @@ class AlertStore:
             ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
+    def query_by_text(self, term: str, limit: int = 50) -> list[dict]:
+        like = f"%{term}%"
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM alerts"
+                " WHERE title LIKE ? OR description LIKE ? OR iocs LIKE ?"
+                " ORDER BY generated_at DESC LIMIT ?",
+                (like, like, like, limit),
+            ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
     def query_by_ip(self, ip: str) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(

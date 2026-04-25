@@ -3,7 +3,16 @@
     "allow": [
       "Bash(python -m pytest tests/test_parsers.py -v)",
       "Bash(python -m pytest tests/test_analyzer.py -v)",
-      "Bash(python -m pytest tests/test_analyzer.py tests/test_parsers.py -v)"
+      "Bash(python -m pytest tests/test_analyzer.py tests/test_parsers.py -v)",
+      "Bash(python main.py --help)",
+      "Bash(python main.py batch --help)",
+      "Bash(python main.py watch --help)",
+      "Bash(python main.py query --help)",
+      "Bash(python -m pytest tests/test_analyzer.py tests/test_parsers.py -v --tb=short)",
+      "Bash(python -c \"import ollama; models = [m.model for m in ollama.list\\(\\).models]; print\\('Models:', models\\)\")",
+      "Bash(python main.py batch --file tests/samples/auth.log)",
+      "Bash(python -c \"from memory.alert_store import AlertStore; AlertStore\\('./nightwatch.db'\\).clear\\(\\); print\\('DB cleared'\\)\")",
+      "Bash(python -m pytest tests/test_analyzer.py tests/test_parsers.py -q)"
     ]
   }
 }

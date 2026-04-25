@@ -1,55 +1,86 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository.
 
 ## Prerequisites & setup
 
 Ollama must be running locally (`ollama serve`) with both models pulled:
 
 ```bash
+ollama pull mistral:7b
 ollama pull llama3.2
-ollama pull nomic-embed-text
 pip install -r requirements.txt
 ```
 
 ## Running
 
 ```bash
-python main.py
+python main.py batch --file /var/log/auth.log
+python main.py watch --file /var/log/nginx/access.log
+python main.py query
 ```
 
-`main.py` calls `check_ollama()` on startup, which verifies Ollama is reachable and both models are present before instantiating `NightWatch`.
+`main.py` calls `check_ollama()` on startup, which verifies Ollama is reachable and the required model is present before proceeding.
 
 ## Architecture
 
-`NightWatch` in `chatbot.py` is the single orchestrator. It wires together four subsystems, all configured via `config.py`:
+NightWatch is a local LLM log analyzer for threat detection. `main.py` is the CLI entry point with three subcommands: `batch`, `watch`, `query`.
 
-### Per-turn flow in `NightWatch.chat()`
+### Per-analysis flow
 
-`chat()` is a **generator** — it yields tokens as they stream from Ollama, then runs post-processing (state update + memory extraction) after the last token is yielded. The caller must fully consume the generator for memory extraction to run.
+1. **`FormatDetector.detect_format()`** — samples the first 20 lines and scores each parser's confidence. Returns the best-fit `LogFormat`.
+2. **`LogParser.parse_lines()`** — streams `LogEntry` objects from the file. Never raises; malformed lines return `format=UNKNOWN`.
+3. **`ThreatAnalyzer.analyze_stream()`** — consumes `LogEntry` objects and yields `Alert` objects:
+   - Groups entries into chunks capped at `CHUNK_TOKEN_BUDGET` tokens
+   - Builds a layered prompt: system prompt → rolling context summary → log chunk
+   - Streams response from Ollama; parses JSON → `list[Alert]`
+   - Persists each `Alert` to SQLite via `AlertStore`
+   - Updates the rolling summary for the next chunk
 
-Order of operations each turn:
-1. **`_maybe_summarize()`** — checks `TokenBudget.is_over_threshold()` against `SUMMARIZE_THRESHOLD` (default 0.75). If over threshold and more than `RECENT_MESSAGES_KEEP` (6) messages exist, pops the oldest `n` messages from `ConversationState` and sends them to `Summarizer.summarize()`, which calls Ollama to produce a rolling third-person summary.
-2. **`VectorMemory.retrieve()`** — embeds the user query via `nomic-embed-text` and queries ChromaDB for the top-`MEMORY_TOP_K` (3) semantically similar stored facts.
-3. **`_build_messages()`** — assembles the Ollama messages list in this exact layer order: system prompt → rolling summary (if any) → retrieved memories (if any) → recent `state.messages` → new user message. The new user message is **not** in `state.messages` yet at this point.
-4. **Stream** from `ollama.chat(..., stream=True)`, yielding each token.
-5. **`VectorMemory.extract_and_store()`** — after streaming completes, makes a second non-streaming Ollama call asking the LLM to extract 1–3 memorable facts from the exchange. Each fact is embedded and stored in ChromaDB.
+### Key design decisions
 
-### Subsystems
+- **JSON output from LLM** — the system prompt requires JSON-only responses. `_parse_response()` strips markdown fences, scans for the first `{`, and uses `raw_decode()` to tolerate trailing prose (mistral:7b sometimes adds it).
+- **SQLite over ChromaDB** — structured queries (by IP, severity, time, source file) fit log analysis better than cosine similarity. `AlertStore` uses a single persistent connection for `:memory:` mode (used in tests).
+- **Two models** — `mistral:7b` (CHAT_MODEL) for batch analysis where accuracy matters; `llama3.2` (FAST_MODEL) for watch mode where speed matters.
 
-- **`memory/conversation.py`** — `ConversationState` dataclass. `pop_oldest(n)` removes and returns the n oldest messages for the summarizer.
-- **`memory/summarizer.py`** — `Summarizer.summarize()` accepts `messages` + optional `existing_summary`. If a prior summary exists, the prompt asks Ollama to incorporate new messages into it (incremental update), not rewrite from scratch.
-- **`memory/vector_store.py`** — `VectorMemory` wraps ChromaDB `PersistentClient`. Embeddings are always provided explicitly (not via a ChromaDB embedding function), so the collection is created with cosine similarity and no built-in EF. The ChromaDB database persists to `./memory_db/` across sessions. `/clear` in the CLI resets `ConversationState` but does **not** wipe ChromaDB — vector memories accumulate indefinitely.
-- **`utils/token_budget.py`** — `TokenBudget` uses a 1 token ≈ 4 chars heuristic. No external tokenizer library.
+### File map
+
+```
+main.py                  CLI — batch / watch / query subcommands
+analyzer.py              ThreatAnalyzer — chunking, prompting, parsing, persistence
+config.py                All constants
+
+models/
+  log_entry.py           LogEntry dataclass + LogFormat enum
+  alert.py               Alert dataclass + Severity enum + SEVERITY_RANK
+
+parsers/
+  base.py                LogParser ABC + FormatDetector
+  syslog.py              BSD syslog, RFC 5424, systemd/journald
+  clf.py                 Nginx / Apache Combined Log Format
+  json_log.py            Generic JSON logs (handles many key-name variants)
+  windows_csv.py         Windows Event Log CSV (Event Viewer + PowerShell)
+
+memory/
+  alert_store.py         SQLite persistence — alerts + IOC tracking
+  session.py             AnalysisSession — per-run metadata and counters
+
+utils/
+  token_budget.py        TokenBudget — 1 token ≈ 4 chars heuristic
+
+tests/
+  test_parsers.py        46 tests covering all four parsers + FormatDetector
+  test_analyzer.py       24 tests covering chunking, JSON parsing, persistence
+  samples/auth.log       Sample syslog file for smoke testing
+```
 
 ### Key config knobs (`config.py`)
 
 | Variable | Default | Effect |
 |---|---|---|
-| `CHAT_MODEL` | `llama3.2` | Model for chat and summarization/extraction |
-| `EMBED_MODEL` | `nomic-embed-text` | Model for embeddings |
-| `CONTEXT_TOKEN_BUDGET` | `3000` | Approximate token ceiling for context |
-| `SUMMARIZE_THRESHOLD` | `0.75` | Fraction of budget that triggers summarization |
-| `RECENT_MESSAGES_KEEP` | `6` | Messages kept verbatim; older ones are summarized |
-| `MEMORY_TOP_K` | `3` | Memories injected per turn |
-| `MEMORY_DB_PATH` | `./memory_db` | ChromaDB persistence path |
+| `CHAT_MODEL` | `mistral:7b` | Model for batch analysis |
+| `FAST_MODEL` | `llama3.2` | Model for watch mode |
+| `CHUNK_TOKEN_BUDGET` | `1500` | Token cap per log chunk |
+| `MIN_SEVERITY` | `LOW` | Default display threshold |
+| `MAX_AFFECTED_LINES` | `10` | Max raw lines stored per Alert |
+| `ALERT_DB_PATH` | `./nightwatch.db` | SQLite database path |
