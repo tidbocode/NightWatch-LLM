@@ -39,7 +39,7 @@ class VectorMemory:
             embeddings=[self._embed(text)],
             documents=[text],
             ids=[str(uuid.uuid4())],
-            metadatas=[metadata or {}],
+            metadatas=[metadata or None],
         )
 
     def retrieve(self, query: str, k: int = 3) -> list[str]:
