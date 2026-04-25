@@ -1,3 +1,4 @@
 ollama
 chromadb
 rich
+pytest
