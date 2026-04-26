@@ -9,6 +9,7 @@ from config import (
     CHAT_MODEL,
     CHUNK_TOKEN_BUDGET,
     FAST_MODEL,
+    LLM_TEMPERATURE,
     MAX_AFFECTED_LINES,
 )
 from memory.alert_store import AlertStore
@@ -22,6 +23,7 @@ You are NightWatch, a cybersecurity log analysis engine running entirely locally
 Analyze the log entries provided and identify security threats, anomalies, and suspicious patterns.
 
 You MUST respond with ONLY valid JSON — no explanation, no markdown fences, no extra text.
+Each element of the "alerts" array MUST be a JSON object, never a string.
 
 Response schema:
 {
@@ -31,11 +33,21 @@ Response schema:
       "title": "Short title (max 60 chars)",
       "description": "What is happening and why it is suspicious",
       "recommendation": "Concrete remediation step",
-      "iocs": ["ip", "username", "path", "hash", ...],
-      "affected_lines": ["exact raw log line 1", ...]
+      "iocs": ["ip", "username", "path", "hash"],
+      "affected_lines": ["exact raw log line 1"]
     }
   ],
   "chunk_summary": "One sentence describing the overall activity in this batch"
+}
+
+Example of a correctly formatted alert object:
+{
+  "severity": "HIGH",
+  "title": "SSH brute force from 203.0.113.42",
+  "description": "14 failed SSH login attempts targeting root, admin, and ubuntu within 90 seconds from a single external IP.",
+  "recommendation": "Block 203.0.113.42 at the firewall and enable fail2ban.",
+  "iocs": ["203.0.113.42", "root", "admin", "ubuntu"],
+  "affected_lines": ["Jan 5 08:15:33 webserver sshd[1843]: Failed password for root from 203.0.113.42"]
 }
 
 Severity guide:
@@ -58,6 +70,15 @@ Threat categories to detect (not exhaustive):
   - Account manipulation (new users, group changes, permission changes)
 
 If no threats are found return: {"alerts": [], "chunk_summary": "..."}"""
+
+_REPAIR_PROMPT = """\
+Your previous response did not follow the required JSON schema. \
+Each element of the "alerts" array must be a JSON object with keys: \
+severity, title, description, recommendation, iocs, affected_lines. \
+You returned plain strings instead of objects.
+
+Rewrite the response now as valid JSON matching the schema exactly. \
+Output ONLY the JSON — no explanation, no markdown fences."""
 
 # Rolling summary length cap — older context is trimmed to stay within budget
 _MAX_SUMMARY_CHARS = 1500
@@ -146,12 +167,22 @@ class ThreatAnalyzer:
 
         full_response = ""
         try:
-            for part in ollama.chat(model=self.model, messages=messages, stream=True):
+            for part in ollama.chat(
+                model=self.model,
+                messages=messages,
+                stream=True,
+                options={"temperature": LLM_TEMPERATURE, "num_predict": -1},
+            ):
                 full_response += part.message.content
         except Exception as exc:
             return [self._error_alert(f"Ollama error: {exc}", entries, source_file)]
 
         alerts, chunk_summary = self._parse_response(full_response, entries, source_file)
+
+        # Second pass: if the LLM returned strings instead of alert objects, ask it to repair
+        if self._needs_repair(full_response, alerts):
+            full_response = self._repair_response(messages, full_response)
+            alerts, chunk_summary = self._parse_response(full_response, entries, source_file)
 
         for alert in alerts:
             self.alert_store.store(alert)
@@ -218,6 +249,8 @@ class ThreatAnalyzer:
         log_format = entries[0].format.value if entries else "unknown"
 
         for item in data.get("alerts", []):
+            if not isinstance(item, dict):
+                continue
             try:
                 severity = Severity(item.get("severity", "INFO").upper())
             except ValueError:
@@ -259,6 +292,37 @@ class ThreatAnalyzer:
 
         if len(self._rolling_summary) > _MAX_SUMMARY_CHARS:
             self._rolling_summary = "...\n" + self._rolling_summary[-_MAX_SUMMARY_CHARS:]
+
+    # ------------------------------------------------------------------
+    # Second-pass repair
+    # ------------------------------------------------------------------
+
+    def _needs_repair(self, raw: str, alerts: list[Alert]) -> bool:
+        """True when the response parsed but returned no real alerts because
+        the alerts array contained strings instead of objects."""
+        # Only trigger repair when the raw text looks like a non-empty alerts array
+        # but nothing survived the isinstance(item, dict) filter.
+        if alerts:
+            return False
+        return '"alerts"' in raw and raw.count('"') > 4
+
+    def _repair_response(self, original_messages: list[dict], bad_response: str) -> str:
+        repair_messages = original_messages + [
+            {"role": "assistant", "content": bad_response},
+            {"role": "user", "content": _REPAIR_PROMPT},
+        ]
+        full_response = ""
+        try:
+            for part in ollama.chat(
+                model=self.model,
+                messages=repair_messages,
+                stream=True,
+                options={"temperature": 0.0, "num_predict": -1},
+            ):
+                full_response += part.message.content
+        except Exception:
+            return bad_response
+        return full_response
 
     # ------------------------------------------------------------------
     # Helpers

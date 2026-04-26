@@ -12,3 +12,6 @@ MAX_AFFECTED_LINES = 10
 
 # SQLite database path for alert persistence
 ALERT_DB_PATH = "./nightwatch.db"
+
+# LLM generation — low temperature for consistent JSON output
+LLM_TEMPERATURE = 0.1
